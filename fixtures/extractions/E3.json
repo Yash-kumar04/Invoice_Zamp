@@ -1,0 +1,44 @@
+{
+  "vendor_name": "Meridian Logistics Inc",
+  "vendor_tax_id": "TAX-ML-55208",
+  "vendor_email": "dispatch@meridian-logistics.example",
+  "bank_account_last4": null,
+  "bank_iban": null,
+  "invoice_number": null,
+  "invoice_date": null,
+  "invoice_date_raw": null,
+  "due_date": null,
+  "due_date_raw": null,
+  "currency": "USD",
+  "po_reference": null,
+  "other_references": [
+    "Quote Q-8890"
+  ],
+  "line_items": [
+    {
+      "description": "Freight services, November lane contract",
+      "sku": null,
+      "quantity": 1,
+      "unit_price": 5200.0,
+      "line_total": 5200.0
+    }
+  ],
+  "subtotal": 5200.0,
+  "tax_amount": 260.0,
+  "tax_rate": 0.05,
+  "tax_mode": "separate",
+  "discount": 0.0,
+  "total_amount": 5460.0,
+  "payment_terms": "Net 30",
+  "page_notes": "Re: Quote Q-8890. Delivery completed.",
+  "evidence": {
+    "vendor_name": "Meridian Logistics Inc",
+    "invoice_number": "",
+    "total_amount": "5,460.00"
+  },
+  "document_quality": "scanned_poor",
+  "missing_fields": [
+    "invoice_number",
+    "invoice_date"
+  ]
+}

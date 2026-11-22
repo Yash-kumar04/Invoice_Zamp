@@ -1,0 +1,53 @@
+{
+  "vendor_name": "Crestline Office Solutions",
+  "vendor_tax_id": "TAX-CR-90817",
+  "vendor_email": "ar@crestlineoffice.example",
+  "bank_account_last4": "6604",
+  "bank_iban": null,
+  "invoice_number": "CR 457",
+  "invoice_date": "2026-10-12",
+  "invoice_date_raw": "12 Oct 2026",
+  "due_date": "2026-11-11",
+  "due_date_raw": "11 Nov 2026",
+  "currency": "USD",
+  "po_reference": "PO7322",
+  "other_references": [],
+  "line_items": [
+    {
+      "description": "A4 paper cartons",
+      "sku": null,
+      "quantity": 40,
+      "unit_price": 22.0,
+      "line_total": 880.0
+    },
+    {
+      "description": "Toner cartridge TC-85",
+      "sku": "TC-85",
+      "quantity": 10,
+      "unit_price": 120.0,
+      "line_total": 1200.0
+    },
+    {
+      "description": "Desk organiser",
+      "sku": null,
+      "quantity": 25,
+      "unit_price": 36.0,
+      "line_total": 900.0
+    }
+  ],
+  "subtotal": 2980.0,
+  "tax_amount": 238.4,
+  "tax_rate": 0.08,
+  "tax_mode": "separate",
+  "discount": 0.0,
+  "total_amount": 3218.4,
+  "payment_terms": "Net 30",
+  "page_notes": "Scanned copy / customer duplicate.",
+  "evidence": {
+    "vendor_name": "Crestline Office Solutions",
+    "invoice_number": "CR 457",
+    "total_amount": "3,218.40"
+  },
+  "document_quality": "scanned_ok",
+  "missing_fields": []
+}

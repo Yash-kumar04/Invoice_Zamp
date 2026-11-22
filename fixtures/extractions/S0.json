@@ -1,0 +1,53 @@
+{
+  "vendor_name": "Northwind Traders Ltd",
+  "vendor_tax_id": "TAX-NW-48291",
+  "vendor_email": "billing@northwind-traders.example",
+  "bank_account_last4": "4821",
+  "bank_iban": null,
+  "invoice_number": "INV-20831",
+  "invoice_date": "2026-11-04",
+  "invoice_date_raw": "4 Nov 2026",
+  "due_date": "2026-12-04",
+  "due_date_raw": "4 Dec 2026",
+  "currency": "USD",
+  "po_reference": "PO-7301",
+  "other_references": [],
+  "line_items": [
+    {
+      "description": "Industrial Pressure Sensor S-200",
+      "sku": "S-200",
+      "quantity": 100,
+      "unit_price": 340.0,
+      "line_total": 34000.0
+    },
+    {
+      "description": "Mounting Kit MK-10",
+      "sku": "MK-10",
+      "quantity": 100,
+      "unit_price": 62.5,
+      "line_total": 6250.0
+    },
+    {
+      "description": "Shielded Cable 5m",
+      "sku": null,
+      "quantity": 200,
+      "unit_price": 12.5,
+      "line_total": 2500.0
+    }
+  ],
+  "subtotal": 42750.0,
+  "tax_amount": 3420.0,
+  "tax_rate": 0.08,
+  "tax_mode": "separate",
+  "discount": 0.0,
+  "total_amount": 46170.0,
+  "payment_terms": "Net 30",
+  "page_notes": null,
+  "evidence": {
+    "vendor_name": "Northwind Traders Ltd",
+    "invoice_number": "INV-20831",
+    "total_amount": "46,170.00"
+  },
+  "document_quality": "clean",
+  "missing_fields": []
+}

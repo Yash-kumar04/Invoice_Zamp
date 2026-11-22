@@ -1,0 +1,39 @@
+{
+  "vendor_name": "BrightPath IT Services",
+  "vendor_tax_id": "TAX-BP-30415",
+  "vendor_email": "accounts@brightpath-it.example",
+  "bank_account_last4": "1190",
+  "bank_iban": null,
+  "invoice_number": "INV-BP-2291",
+  "invoice_date": "2026-11-10",
+  "invoice_date_raw": "10 Nov 2026",
+  "due_date": "2026-11-25",
+  "due_date_raw": "25 Nov 2026",
+  "currency": "USD",
+  "po_reference": "PO-7315",
+  "other_references": [],
+  "line_items": [
+    {
+      "description": "Cloud migration support and consulting services (Phase 1 bundled)",
+      "sku": null,
+      "quantity": 1,
+      "unit_price": 13230.0,
+      "line_total": 13230.0
+    }
+  ],
+  "subtotal": 12027.27,
+  "tax_amount": 1202.73,
+  "tax_rate": 0.1,
+  "tax_mode": "included",
+  "discount": 0.0,
+  "total_amount": 13230.0,
+  "payment_terms": "Net 15",
+  "page_notes": "Total due $13,230.00 includes 10% sales tax.",
+  "evidence": {
+    "vendor_name": "BrightPath IT Services",
+    "invoice_number": "INV-BP-2291",
+    "total_amount": "13,230.00"
+  },
+  "document_quality": "clean",
+  "missing_fields": []
+}

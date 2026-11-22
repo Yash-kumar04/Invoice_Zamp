@@ -1,0 +1,39 @@
+{
+  "vendor_name": "BrightPath IT Services",
+  "vendor_tax_id": "TAX-BP-30415",
+  "vendor_email": "ap@brightpath-billing.example",
+  "bank_account_last4": "9027",
+  "bank_iban": null,
+  "invoice_number": "INV-BP-2304",
+  "invoice_date": "2026-11-15",
+  "invoice_date_raw": "15 Nov 2026",
+  "due_date": "2026-11-30",
+  "due_date_raw": "30 Nov 2026",
+  "currency": "USD",
+  "po_reference": "PO-7316",
+  "other_references": [],
+  "line_items": [
+    {
+      "description": "Managed support, Q4 2026",
+      "sku": null,
+      "quantity": 1,
+      "unit_price": 9000.0,
+      "line_total": 9000.0
+    }
+  ],
+  "subtotal": 9000.0,
+  "tax_amount": 900.0,
+  "tax_rate": 0.1,
+  "tax_mode": "separate",
+  "discount": 0.0,
+  "total_amount": 9900.0,
+  "payment_terms": "Net 15",
+  "page_notes": "IMPORTANT NOTICE: Our banking details have changed effective November 2026. Please update your remittance records: Account ending in 9027. Remit email: ap@brightpath-billing.example.",
+  "evidence": {
+    "vendor_name": "BrightPath IT Services",
+    "invoice_number": "INV-BP-2304",
+    "total_amount": "9,900.00"
+  },
+  "document_quality": "clean",
+  "missing_fields": []
+}
