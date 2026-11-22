@@ -6,9 +6,10 @@ Schema: vendors, vendor_aliases, purchase_orders, po_lines,
 """
 
 import json
-import sqlite3
 import os
 from pathlib import Path
+import sqlite3
+from typing import Any
 
 _DEFAULT_DB = str(Path(__file__).resolve().parent.parent / "data.db")
 
@@ -363,7 +364,7 @@ def save_run(
     }
     r = {**defaults, **run}
     conn.execute(
-        """INSERT INTO runs
+        """INSERT OR REPLACE INTO runs
            (run_id, invoice_number, vendor_id, vendor_name, po_number,
             status, severity, headline, net, gross, currency,
             invoice_date, due_date, pay_by, next_action, email_draft,
@@ -392,6 +393,84 @@ def save_run(
         )
     conn.commit()
     return r["run_id"]
+
+
+def update_run_status(conn: sqlite3.Connection, run_id: str, status: str) -> None:
+    """Update status of an existing run."""
+    conn.execute("UPDATE runs SET status = ? WHERE run_id = ?", (status, run_id))
+    conn.commit()
+
+
+# ── Run Events & Review Actions ──────────────────────────────────────────
+
+def save_run_event(
+    conn: sqlite3.Connection,
+    run_id: str,
+    stage_number: int,
+    stage_name: str,
+    event_type: str,
+    data: dict | None = None,
+    duration_ms: float = 0.0,
+) -> int:
+    """Insert a stage event into run_events."""
+    data_json = json.dumps(data) if data is not None else None
+    cur = conn.execute(
+        """INSERT INTO run_events
+           (run_id, stage_number, stage_name, event_type, data_json, duration_ms, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+        (run_id, stage_number, stage_name, event_type, data_json, duration_ms),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_run_events(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    """Retrieve all events for a run ordered by sequence."""
+    rows = conn.execute(
+        "SELECT * FROM run_events WHERE run_id = ? ORDER BY id ASC",
+        (run_id,),
+    ).fetchall()
+    results = []
+    for r in rows:
+        d = dict(r)
+        if d.get("data") and isinstance(d["data"], str):
+            try:
+                d["data"] = json.loads(d["data"])
+            except Exception:
+                pass
+        results.append(d)
+    return results
+
+
+def save_review_action(
+    conn: sqlite3.Connection,
+    run_id: str,
+    action: str,
+    note: str | None = None,
+    reviewer: str = "demo_user",
+) -> int:
+    """Audit a review action (approve/reject)."""
+    cur = conn.execute(
+        """INSERT INTO review_actions (run_id, action, note, reviewer, created_at)
+           VALUES (?, ?, ?, ?, datetime('now'))""",
+        (run_id, action, note, reviewer),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_review_actions(conn: sqlite3.Connection, run_id: str | None = None) -> list[dict[str, Any]]:
+    """Get review actions, optionally filtered by run_id."""
+    if run_id:
+        rows = conn.execute(
+            "SELECT * FROM review_actions WHERE run_id = ? ORDER BY created_at DESC",
+            (run_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM review_actions ORDER BY created_at DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ── Reset ───────────────────────────────────────────────────────────────

@@ -9,11 +9,14 @@ Zero branching on scenario id or file name.
 from datetime import date, datetime
 import hashlib
 import json
+import logging
 import time
 from typing import Any, Callable
 import uuid
 
 import pymupdf as fitz
+
+logger = logging.getLogger("invoice.pipeline")
 
 from app.config import get_as_of_date, load_rules
 from app.db import (
@@ -90,9 +93,10 @@ def _compute_stage_result(checks: list[Check]) -> str:
 def run_pipeline(
     file_bytes: bytes,
     filename: str,
-    extract_fn: Callable[[bytes, str, str], dict],
-    db: Any,
+    extract_fn: Callable[[bytes, str, str], dict] | None = None,
+    db: Any = None,
     on_event: Callable[[dict], None] | None = None,
+    min_display_ms: float = 0.0,
 ) -> dict[str, Any]:
     """Execute the 12-stage invoice processing pipeline."""
     run_id = f"RUN-{uuid.uuid4().hex[:8].upper()}"
@@ -116,17 +120,58 @@ def run_pipeline(
             "created_at": datetime.now().isoformat(),
         }
         stage_events.append(evt)
+
+        # Persist event to DB run_events table
+        if db is not None:
+            try:
+                db.execute(
+                    """INSERT INTO run_events
+                       (run_id, stage_number, stage_name, event_type, data_json, duration_ms, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+                    (
+                        run_id,
+                        stage_no,
+                        STAGE_NAMES[stage_no],
+                        event_type,
+                        json.dumps(data or {}),
+                        round(duration_ms, 2),
+                    ),
+                )
+                db.commit()
+            except Exception as e:
+                logger.warning(f"Failed to persist run_event: {e}")
+
         if on_event:
             try:
                 on_event(evt)
             except Exception:
                 pass
 
+        if min_display_ms > 0 and event_type == "finished":
+            elapsed_sec = duration_ms / 1000.0
+            target_sec = min_display_ms / 1000.0
+            if elapsed_sec < target_sec:
+                time.sleep(target_sec - elapsed_sec)
+
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    # Pre-insert run record so run_events foreign key constraint is satisfied
+    if db is not None:
+        try:
+            db.execute(
+                """INSERT OR REPLACE INTO runs
+                   (run_id, file_name, file_hash, status, severity, created_at, seeded)
+                   VALUES (?, ?, ?, 'RUNNING', 'LOW', ?, 0)""",
+                (run_id, filename, file_hash, created_at),
+            )
+            db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to insert initial run: {e}")
+
     # ── Stage 1: Ingest ─────────────────────────────────────────────────
     t0 = time.perf_counter()
     emit(1, "started", {"stage": STAGE_NAMES[1]})
 
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
     text_layer = ""
     is_scanned = True
     page_count = 1
@@ -154,10 +199,64 @@ def run_pipeline(
     t0 = time.perf_counter()
     emit(2, "started", {"stage": STAGE_NAMES[2]})
 
-    ext_res = extract_fn(file_bytes, filename, file_hash)
-    extraction = ext_res.get("fields", ext_res)
-    ext_source = ext_res.get("source", "injected")
-    ext_model = ext_res.get("model", "fixture")
+    if extract_fn is None:
+        from app.extract import extract_with_gemini
+        extract_fn = extract_with_gemini
+
+    try:
+        ext_res = extract_fn(file_bytes, filename, file_hash)
+        extraction = ext_res.get("fields", ext_res)
+        ext_source = ext_res.get("_source", ext_res.get("source", "live"))
+        ext_model = ext_res.get("_model", ext_res.get("model", "gemini"))
+    except Exception as ex:
+        t2_ms = (time.perf_counter() - t0) * 1000
+        timings["extract"] = t2_ms
+        stage2_summary = f"Extraction failed: {ex}"
+        emit(2, "finished", {
+            "result": "fail",
+            "duration_ms": round(t2_ms, 2),
+            "summary": stage2_summary,
+            "findings": {"error": str(ex)},
+        }, duration_ms=t2_ms)
+
+        # Build ERROR decision record
+        err_rec = {
+            "run_id": run_id,
+            "status": "ERROR",
+            "severity": "HIGH",
+            "headline": f"Extraction failed: {ex}",
+            "reasons": [str(ex)],
+            "next_action": "retry_run",
+            "vendor": {"id": None, "name": None, "tax_id": None, "status": "unknown", "callback_phone": None},
+            "po": {"po_number": None, "remaining_net": None, "tax_rate": None},
+            "gross": None,
+            "net": None,
+            "currency": "USD",
+            "pay_by": None,
+            "checks": [],
+            "extraction": {"fields": {}, "source": "failed", "model": "none", "verified": False},
+            "timings": timings,
+            "email_draft": None,
+            "ledger_effect": {"posted": False, "reason": "Extraction failed."},
+            "stage_events": stage_events,
+        }
+        if db is not None:
+            save_run(db, {
+                "run_id": run_id,
+                "invoice_number": None,
+                "vendor_id": None,
+                "vendor_name": None,
+                "gross": 0.0,
+                "status": "ERROR",
+                "severity": "HIGH",
+                "headline": err_rec["headline"],
+                "reasons": err_rec["reasons"],
+                "next_action": "retry_run",
+                "file_hash": file_hash,
+                "created_at": created_at,
+                "decision_json": json.dumps(err_rec),
+            }, checks=[])
+        return err_rec
 
     t2_ms = (time.perf_counter() - t0) * 1000
     timings["extract"] = t2_ms
@@ -172,6 +271,8 @@ def run_pipeline(
             "invoice_number": extraction.get("invoice_number"),
             "total_amount": extraction.get("total_amount"),
             "currency": extraction.get("currency"),
+            "source": ext_source,
+            "model": ext_model,
         },
     }, duration_ms=t2_ms)
 
@@ -214,7 +315,11 @@ def run_pipeline(
     s3_result = _compute_stage_result(s3_checks)
     t3_ms = (time.perf_counter() - t0) * 1000
     timings["verify"] = t3_ms
-    stage3_summary = "Verified required fields, text grounding, arithmetic and dates."
+    if s3_result in ("fail", "warn"):
+        failing_c = next((c for c in s3_checks if c.result in ("fail", "warn")), None)
+        stage3_summary = failing_c.message if failing_c else "Verification check flagged issues."
+    else:
+        stage3_summary = "Verified required fields, text grounding, arithmetic and dates."
     emit(3, "finished", {
         "result": s3_result,
         "duration_ms": round(t3_ms, 2),
@@ -277,7 +382,11 @@ def run_pipeline(
     t5_ms = (time.perf_counter() - t0) * 1000
     timings["vendor"] = t5_ms
     v_display = matched_vendor["name"] if matched_vendor else "Unknown"
-    stage5_summary = f"Vendor resolved to {v_display}. Status, tax ID and banking verified."
+    if s5_result in ("fail", "warn"):
+        failing_c = next((c for c in s5_checks if c.result in ("fail", "warn")), None)
+        stage5_summary = failing_c.message if failing_c else f"Vendor check flagged issues for {v_display}."
+    else:
+        stage5_summary = f"Vendor resolved to {v_display}. Status, tax ID and banking verified."
     emit(5, "finished", {
         "result": s5_result,
         "duration_ms": round(t5_ms, 2),
@@ -290,7 +399,7 @@ def run_pipeline(
     emit(6, "started", {"stage": STAGE_NAMES[6]})
 
     ledger_entries = [dict(r) for r in get_ledger_entries(db)]
-    past_runs = [dict(r) for r in get_runs(db)]
+    past_runs = [dict(r) for r in get_runs(db) if r["run_id"] != run_id]
 
     v_id = matched_vendor["id"] if matched_vendor else None
     c_dup01 = check_dup_01(
@@ -315,7 +424,11 @@ def run_pipeline(
     s6_result = _compute_stage_result(s6_checks)
     t6_ms = (time.perf_counter() - t0) * 1000
     timings["duplicate"] = t6_ms
-    stage6_summary = "Checked exact and probable duplicates against posted ledger."
+    if s6_result in ("fail", "warn"):
+        failing_c = next((c for c in s6_checks if c.result in ("fail", "warn")), None)
+        stage6_summary = failing_c.message if failing_c else "Duplicate check flagged potential match."
+    else:
+        stage6_summary = "Checked exact and probable duplicates against posted ledger."
     emit(6, "finished", {
         "result": s6_result,
         "duration_ms": round(t6_ms, 2),
@@ -347,7 +460,11 @@ def run_pipeline(
     t7_ms = (time.perf_counter() - t0) * 1000
     timings["po_match"] = t7_ms
     po_display = matched_po["po_number"] if matched_po else (f"Suggested {suggested_po}" if suggested_po else "None")
-    stage7_summary = f"PO match: {po_display}. Ownership and open balance checked."
+    if s7_result in ("fail", "warn"):
+        failing_c = next((c for c in s7_checks if c.result in ("fail", "warn")), None)
+        stage7_summary = failing_c.message if failing_c else f"PO check flagged issues for {po_display}."
+    else:
+        stage7_summary = f"PO match: {po_display}. Ownership and open balance checked."
     emit(7, "finished", {
         "result": s7_result,
         "duration_ms": round(t7_ms, 2),
@@ -378,7 +495,11 @@ def run_pipeline(
     s8_result = _compute_stage_result(s8_checks)
     t8_ms = (time.perf_counter() - t0) * 1000
     timings["lines"] = t8_ms
-    stage8_summary = "Mapped invoice lines and checked 3-way quantities against receipts."
+    if s8_result in ("fail", "warn"):
+        failing_c = next((c for c in s8_checks if c.result in ("fail", "warn")), None)
+        stage8_summary = failing_c.message if failing_c else "Line matching or 3-way check flagged issues."
+    else:
+        stage8_summary = "Mapped invoice lines and checked 3-way quantities against receipts."
     emit(8, "finished", {
         "result": s8_result,
         "duration_ms": round(t8_ms, 2),
@@ -443,7 +564,11 @@ def run_pipeline(
     t9_ms = (time.perf_counter() - t0) * 1000
     timings["amounts"] = t9_ms
     var_sign = "+" if variance > 0 else ""
-    stage9_summary = f"Checked PO balance, tax, and gross variance ({var_sign}${variance:,.2f})."
+    if s9_result in ("fail", "warn"):
+        failing_c = next((c for c in s9_checks if c.result in ("fail", "warn")), None)
+        stage9_summary = failing_c.message if failing_c else f"Checked PO balance, tax, and gross variance ({var_sign}${variance:,.2f})."
+    else:
+        stage9_summary = f"Checked PO balance, tax, and gross variance ({var_sign}${variance:,.2f})."
     emit(9, "finished", {
         "result": s9_result,
         "duration_ms": round(t9_ms, 2),
@@ -465,7 +590,11 @@ def run_pipeline(
     s10_result = _compute_stage_result(s10_checks)
     t10_ms = (time.perf_counter() - t0) * 1000
     timings["policy"] = t10_ms
-    stage10_summary = f"Verified gross against ${config.get('auto_approve_limit', 75000):,.2f} auto-approve limit."
+    if s10_result in ("fail", "warn"):
+        failing_c = next((c for c in s10_checks if c.result in ("fail", "warn")), None)
+        stage10_summary = failing_c.message if failing_c else "Policy check flagged manager sign-off required."
+    else:
+        stage10_summary = f"Verified gross against ${config.get('auto_approve_limit', 75000):,.2f} auto-approve limit."
     emit(10, "finished", {
         "result": s10_result,
         "duration_ms": round(t10_ms, 2),
@@ -572,29 +701,13 @@ def run_pipeline(
 
     # Save run record and checks to DB
     checks_data = [c.to_dict() for c in all_checks]
-    save_run(db, run_record, checks_data)
-
-    # Save events to run_events table
-    for evt in stage_events:
-        db.execute(
-            """INSERT INTO run_events
-               (run_id, stage_number, stage_name, event_type, data_json, duration_ms, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                run_id,
-                evt["stage_number"],
-                evt["stage_name"],
-                evt["event_type"],
-                json.dumps(evt.get("data", {})),
-                evt.get("duration_ms", 0.0),
-                evt["created_at"],
-            ),
-        )
-    db.commit()
+    if db is not None:
+        save_run(db, run_record, checks_data)
 
     t12_ms = (time.perf_counter() - t0) * 1000
     timings["act"] = t12_ms
-    stage12_summary = f"Action: {'Posted to ledger' if ledger_effect['posted'] else decision['next_action']}."
+    act_text = "Posted to ledger" if ledger_effect["posted"] else str(decision["next_action"])
+    stage12_summary = f"Action: {act_text.rstrip('.')}."
     emit(12, "finished", {
         "result": "pass",
         "duration_ms": round(t12_ms, 2),
