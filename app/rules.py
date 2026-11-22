@@ -86,6 +86,12 @@ def calculate_invoice_net(
     else total divided by (1 plus PO tax rate) with tax marked inferred.'
     Returns (net, tax_inferred).
     """
+    if tax_mode == "included":
+        if total is not None and po_tax_rate is not None:
+            return round(float(total) / (1.0 + float(po_tax_rate)), 2), True
+        if subtotal is not None and subtotal > 0:
+            return round(float(subtotal), 2), True
+
     if subtotal is not None and subtotal > 0:
         return round(float(subtotal), 2), False
 
@@ -217,6 +223,7 @@ def check_ext_03(
     discount: float | None,
     total_amount: float | None,
     tolerance: float = 0.02,
+    tax_mode: str | None = None,
 ) -> Check:
     """EXT-03: Lines plus tax minus discount equal total within tolerance."""
     if total_amount is None:
@@ -251,6 +258,35 @@ def check_ext_03(
                 message=f"Lines ({lines_sum:.2f}) + tax ({tax:.2f}) - discount ({disc:.2f}) = {calc_total:.2f} agrees with total {tot:.2f}.",
                 evidence={"lines_sum": lines_sum, "tax": tax, "discount": disc, "diff": round(diff, 4)},
             )
+
+        # In tax-inclusive mode (or when lines sum equals gross total because lines include tax)
+        calc_total_inc = lines_sum - disc
+        diff_inc = abs(calc_total_inc - tot)
+        if (tax_mode == "included" or diff_inc <= tolerance + 1e-4) and diff_inc <= tolerance + 1e-4:
+            return Check(
+                id="EXT-03",
+                name="Arithmetic consistency",
+                stage="verify",
+                result="pass",
+                outcome_class=None,
+                message=f"Lines sum ({lines_sum:.2f}) - discount ({disc:.2f}) = {calc_total_inc:.2f} agrees with total {tot:.2f} (tax included: {tax:.2f}).",
+                evidence={"lines_sum": lines_sum, "tax": tax, "discount": disc, "tax_mode": "included", "diff": round(diff_inc, 4)},
+            )
+
+        if subtotal is not None:
+            calc_sub = float(subtotal) + tax - disc
+            diff_sub = abs(calc_sub - tot)
+            if diff_sub <= tolerance + 1e-4:
+                return Check(
+                    id="EXT-03",
+                    name="Arithmetic consistency",
+                    stage="verify",
+                    result="pass",
+                    outcome_class=None,
+                    message=f"Subtotal ({float(subtotal):.2f}) + tax ({tax:.2f}) - discount ({disc:.2f}) agrees with total {tot:.2f}.",
+                    evidence={"subtotal": float(subtotal), "tax": tax, "discount": disc, "diff": round(diff_sub, 4)},
+                )
+
         return Check(
             id="EXT-03",
             name="Arithmetic consistency",

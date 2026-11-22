@@ -5,6 +5,7 @@ Schema: vendors, vendor_aliases, purchase_orders, po_lines,
         run_events, review_actions.
 """
 
+import json
 import sqlite3
 import os
 from pathlib import Path
@@ -377,6 +378,9 @@ def save_run(
         r,
     )
     for c in (checks or []):
+        ev = c.get("evidence")
+        if isinstance(ev, (dict, list)):
+            ev = json.dumps(ev)
         conn.execute(
             """INSERT INTO run_checks
                (run_id, check_id, check_name, stage, result,
@@ -384,7 +388,7 @@ def save_run(
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (r["run_id"], c["check_id"], c["check_name"], c["stage"],
              c["result"], c.get("severity"), c.get("message"),
-             c.get("evidence")),
+             ev),
         )
     conn.commit()
     return r["run_id"]
