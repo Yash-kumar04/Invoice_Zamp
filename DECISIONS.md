@@ -1,0 +1,20 @@
+# DECISIONS.md — Design decisions and ambiguity resolutions
+
+> SPEC.md is the source of truth. Where it is ambiguous, the simplest option is chosen and logged here.
+
+| # | Question | Decision | Rationale |
+|---|----------|----------|-----------|
+| D1 | Env var naming: SPEC says `GEMINI_MODEL` but `.env` has `GEMINI_MODELS` (comma list) | Support both. Try `GEMINI_MODELS` first (comma-separated fallback chain); if absent, build chain from `GEMINI_MODEL` + `GEMINI_FALLBACK_MODEL`. | Covers both the SPEC wording and the user's actual `.env` file. |
+| D2 | Extraction caching | Live Gemini is the primary path. Cached fixture extractions (named by scenario id, e.g., `fixtures/extractions/E4.json`) are a fallback only when all live models fail, and only for known samples. `samples/manifest.json` maps each sample's SHA-256 to its scenario id. Sample generation is deterministic (reportlab `invariant=1`, seeded random for scan noise). | User correction: never serve cached on re-run. Fixtures exist only as a safety net. |
+| D3 | SQLite concurrency for SSE | Use WAL journal mode. Single writer, concurrent readers. | Simplest mode that doesn't block SSE reads during pipeline writes. |
+| D4 | 14 historical seeded runs | Generate synthetic run records with realistic check results, spread over 3 weeks before AS_OF_DATE. 8 approved, 3 needs_review, 2 needs_info, 1 rejected per SPEC. | B6 says "14 historical runs" with that status distribution. |
+| D5 | Rate limiting implementation | In-memory dict keyed by IP with (count, window_start). Resets on restart. | Simplest approach; acceptable for a demo app. |
+| D6 | SSE replay for finished runs | Store SSE events as JSON in a `run_events` table. Replay with original timing capped at 50ms per event. | SPEC says GET `/api/runs/{id}/stream` replays finished runs. |
+| D7 | AS_OF_DATE usage | All "today" comparisons use `AS_OF_DATE` from env (default: actual date). This includes stale-invoice checks, date sanity, and seeded history date ranges. | B13 says "AS_OF_DATE env freezes 'today' so demo dates never go stale." |
+| D8 | Implied PO matching method | Compare invoice total and line descriptions against vendor's open POs using amount match + rapidfuzz description similarity. Single candidate ≥85 score → suggestion only. | B8 PO-01 says "search the vendor's open POs by description and amount." |
+| D9 | Line mapping strategy | Match invoice lines to PO lines by SKU (exact), then by description `token_set_ratio` ≥ 80. No price-only fallback. Unmatched lines fail LINE-01. | User correction: no price fallback. token_set_ratio handles reworded descriptions. |
+| D10 | Email draft for VEN-04 (bank change) | Generate an internal call script addressed to the AP team, using the vendor's callback phone from master data. Never use the contact info from the invoice. | B9 E4 and B10 explicitly say "call +1-555-0103 from the master record, never the contact printed on the invoice." |
+| D11 | Bundled line handling | If invoice has 1 line and PO has multiple, compare invoice net to PO remaining net. Passes within tolerance but raises a warning. | B9 S1 says "one bundled line" with an AMT-01 note. LINE-01 in B8 says "a single bundled line is compared to the PO remaining net and raises a warning." |
+| D12 | Sample PDF generation | Use reportlab for digital PDFs and Pillow for the scanned/photo scenarios (E2, E3). | SPEC lists both as dependencies. E2 is "scanned re-send", E3 is "phone-photo scan." |
+| D13 | Review actions (Approve/Reject buttons) | POST `/api/runs/{id}/review` stores the action + note + timestamp in a `review_actions` table. Changes the run status. Approved reviews trigger ledger posting. | B11 says "Approve or Reject buttons that ask for a note"; B12 says the endpoint exists. |
+| D14 | PO remaining balance | Computed dynamically: `PO net - SUM(posted invoice nets for that PO)`. Not stored as a column. | B6 says "Remaining PO net = PO net minus the sum of posted invoice net." Keeps it consistent. |

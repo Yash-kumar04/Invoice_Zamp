@@ -1,0 +1,16 @@
+{
+  "currency": "USD",
+  "tolerance_pct": 2.0,
+  "tolerance_abs": 100.00,
+  "tax_abs_tolerance": 1.00,
+  "arithmetic_tolerance": 0.02,
+  "auto_approve_limit": 75000,
+  "stale_invoice_days": 180,
+  "dup_date_window_days": 10,
+  "dup_number_similarity": 85,
+  "vendor_fuzzy_accept": 92,
+  "vendor_fuzzy_review": 80,
+  "implied_po_min_score": 85,
+  "allow_implied_po_autoapprove": false,
+  "manual_minutes_per_invoice": 8
+}
