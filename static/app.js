@@ -452,6 +452,8 @@ async function handleFileUpload(file) {
   previewOpenLink.classList.remove('hidden');
 
   resetRunView();
+  state.activeFile = file;
+  state.activeSampleId = null;
   document.getElementById('active-run-id-label').textContent = 'Uploading & Initializing...';
   document.getElementById('live-indicator').classList.remove('hidden');
 
@@ -499,6 +501,8 @@ async function startSampleRun(sampleId) {
   previewOpenLink.classList.remove('hidden');
 
   resetRunView();
+  state.activeSampleId = sampleId;
+  state.activeFile = null;
   document.getElementById('active-run-id-label').textContent = `Starting ${sampleId}...`;
   document.getElementById('live-indicator').classList.remove('hidden');
 
@@ -654,20 +658,26 @@ function renderExtractedFields(findings, decision = null) {
     else if (decision.extraction_json) {
       try {
         f = typeof decision.extraction_json === 'string' ? JSON.parse(decision.extraction_json) : decision.extraction_json;
-      } catch (e) {}
+      } catch (e) { }
     }
   }
-  const source = decision?.extraction?.source || f.source || f._source || 'live';
-  const model = decision?.extraction?.model || f.model || f._model || 'gemini';
+  const source = decision?.extraction?.source || f.source || f._source;
+  const model = decision?.extraction?.model || f.model || f._model;
 
   if (badge) {
     badge.classList.remove('hidden');
     if (source === 'cached') {
       badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200';
-      badge.textContent = 'Fixture fallback';
-    } else {
+      badge.textContent = `${model || 'fixture'} (cached)`;
+    } else if (source === 'live') {
       badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200';
-      badge.textContent = `${model} (live)`;
+      badge.textContent = `${model || 'gemini'} (live)`;
+    } else if (source === 'failed') {
+      badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-rose-50 text-rose-700 border border-rose-200';
+      badge.textContent = 'Extraction failed';
+    } else {
+      badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-300';
+      badge.textContent = 'Source unavailable';
     }
   }
 
@@ -743,12 +753,12 @@ function renderExtractedFields(findings, decision = null) {
   container.innerHTML = `
     <div class="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden bg-white">
       ${rows.map(r => {
-        const isFlagged = flagged.has(r.key);
-        const valClass = isFlagged
-          ? 'bg-amber-100 text-amber-900 border border-amber-300 font-semibold px-1.5 py-0.5 rounded shadow-xs'
-          : 'text-slate-800 font-mono';
-        const labelClass = isFlagged ? 'text-amber-800 font-semibold' : 'text-slate-500 font-medium';
-        return `
+    const isFlagged = flagged.has(r.key);
+    const valClass = isFlagged
+      ? 'bg-amber-100 text-amber-900 border border-amber-300 font-semibold px-1.5 py-0.5 rounded shadow-xs'
+      : 'text-slate-800 font-mono';
+    const labelClass = isFlagged ? 'text-amber-800 font-semibold' : 'text-slate-500 font-medium';
+    return `
           <div class="px-3 py-1.5 flex items-center justify-between">
             <span class="${labelClass}">${r.label}</span>
             <span class="text-right truncate max-w-[200px] ${valClass}">
@@ -756,7 +766,7 @@ function renderExtractedFields(findings, decision = null) {
             </span>
           </div>
         `;
-      }).join('')}
+  }).join('')}
     </div>
     ${linesHtml}
   `;
@@ -871,12 +881,26 @@ function renderDecisionCard(decision) {
     `;
   }
 
+  const extSource = decision?.extraction?.source;
+  const extModel = decision?.extraction?.model;
+  let sourceBadgeHtml = '';
+  if (extSource === 'cached') {
+    sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200">${escapeHtml(extModel || 'fixture')} (cached)</span>`;
+  } else if (extSource === 'live') {
+    sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200">${escapeHtml(extModel || 'gemini')} (live)</span>`;
+  } else if (extSource === 'failed') {
+    sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-rose-50 text-rose-700 border border-rose-200">Extraction failed</span>`;
+  } else if (extSource === 'Source unavailable' || (!extSource && decision.seeded)) {
+    sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600 border border-slate-300">Source unavailable</span>`;
+  }
+
   container.innerHTML = `
     <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-md space-y-4">
       <div class="flex items-start justify-between">
         <div class="space-y-1">
           <div class="flex items-center space-x-2">
             ${getStatusBadgeHtml(status, severity)}
+            ${sourceBadgeHtml}
             <span class="text-xs text-slate-400 font-mono">${decision.run_id}</span>
           </div>
           <h2 class="text-base font-bold text-slate-900 mt-1">${escapeHtml(headline)}</h2>
@@ -965,8 +989,14 @@ function renderDecisionCard(decision) {
   }
 
   const btnRetry = document.getElementById('btn-card-retry');
-  if (btnRetry && state.activeSampleId) {
-    btnRetry.addEventListener('click', () => startSampleRun(state.activeSampleId));
+  if (btnRetry) {
+    btnRetry.addEventListener('click', () => {
+      if (state.activeSampleId) {
+        startSampleRun(state.activeSampleId);
+      } else if (state.activeFile) {
+        handleFileUpload(state.activeFile);
+      }
+    });
   }
 }
 
@@ -1282,7 +1312,7 @@ async function updateReviewBadge() {
     } else {
       badge.classList.add('hidden');
     }
-  } catch {}
+  } catch { }
 }
 
 // ── Review Action Modal ─────────────────────────────────────────────────────
@@ -1524,10 +1554,10 @@ async function loadMasterData() {
     posContainer.innerHTML = `
       <div class="space-y-4">
         ${purchase_orders.map(po => {
-          const remNet = po.remaining_net !== undefined ? po.remaining_net : po.total_net;
-          const pctConsumed = po.total_net > 0 ? Math.min(100, (((po.total_net - remNet) / po.total_net) * 100)).toFixed(0) : 0;
+      const remNet = po.remaining_net !== undefined ? po.remaining_net : po.total_net;
+      const pctConsumed = po.total_net > 0 ? Math.min(100, (((po.total_net - remNet) / po.total_net) * 100)).toFixed(0) : 0;
 
-          return `
+      return `
             <div class="border border-slate-200 rounded-lg p-4 bg-white space-y-3">
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
                 <div class="flex items-center space-x-2.5">
@@ -1585,7 +1615,7 @@ async function loadMasterData() {
               </div>
             </div>
           `;
-        }).join('')}
+    }).join('')}
       </div>
     `;
   } catch (err) {

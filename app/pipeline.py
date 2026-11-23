@@ -215,7 +215,7 @@ def run_pipeline(
     except Exception as ex:
         t2_ms = (time.perf_counter() - t0) * 1000
         timings["extract"] = t2_ms
-        stage2_summary = f"Extraction failed: {ex}"
+        stage2_summary = f"Extraction failed: {ex}. Please retry."
         emit(2, "finished", {
             "result": "fail",
             "duration_ms": round(t2_ms, 2),
@@ -223,17 +223,17 @@ def run_pipeline(
             "findings": {"error": str(ex)},
         }, duration_ms=t2_ms)
 
-        # Build ERROR decision record
+        # Build ERROR decision record with plain English retry message
         err_rec = {
             "run_id": run_id,
             "status": "ERROR",
             "severity": "HIGH",
-            "headline": f"Extraction failed: {ex}",
-            "reasons": [str(ex)],
+            "headline": "Extraction failed. The document could not be processed. Please check document quality and retry.",
+            "reasons": [str(ex) or "Extraction service encountered an error.", "Please retry the run."],
             "next_action": "retry_run",
             "vendor": {"id": None, "name": None, "tax_id": None, "status": "unknown", "callback_phone": None},
             "po": {"po_number": None, "remaining_net": None, "tax_rate": None},
-            "gross": None,
+            "gross": 0.0,
             "net": None,
             "currency": "USD",
             "pay_by": None,
@@ -241,7 +241,7 @@ def run_pipeline(
             "extraction": {"fields": {}, "source": "failed", "model": "none", "verified": False},
             "timings": timings,
             "email_draft": None,
-            "ledger_effect": {"posted": False, "reason": "Extraction failed."},
+            "ledger_effect": {"posted": False, "reason": f"Extraction failed: {ex}"},
             "stage_events": stage_events,
         }
         if db is not None:
@@ -250,6 +250,7 @@ def run_pipeline(
                 "invoice_number": None,
                 "vendor_id": None,
                 "vendor_name": None,
+                "po_number": None,
                 "gross": 0.0,
                 "status": "ERROR",
                 "severity": "HIGH",
@@ -257,7 +258,9 @@ def run_pipeline(
                 "reasons": err_rec["reasons"],
                 "next_action": "retry_run",
                 "file_hash": file_hash,
+                "file_name": filename,
                 "created_at": created_at,
+                "extraction_json": json.dumps({"source": "failed", "model": "none"}),
                 "decision_json": json.dumps(err_rec),
             }, checks=[])
         return err_rec
@@ -642,31 +645,11 @@ def run_pipeline(
     ledger_effect: dict[str, Any] = {"posted": False}
     tot_proc_ms = (time.perf_counter() - start_total_time) * 1000
 
-    # Build run record for DB persistence
-    run_record = {
-        "run_id": run_id,
-        "invoice_number": extraction.get("invoice_number"),
-        "vendor_id": matched_vendor["id"] if matched_vendor else None,
-        "vendor_name": matched_vendor["name"] if matched_vendor else extraction.get("vendor_name"),
-        "po_number": matched_po["po_number"] if matched_po else None,
-        "status": decision["status"],
-        "severity": decision["severity"],
-        "headline": decision["headline"],
-        "net": inv_net,
-        "gross": extraction.get("total_amount"),
-        "currency": extraction.get("currency", "USD"),
-        "invoice_date": str(extraction.get("invoice_date") or ""),
-        "due_date": str(extraction.get("due_date") or ""),
-        "pay_by": decision.get("pay_by"),
-        "next_action": decision["next_action"],
-        "email_draft": decision.get("email_draft"),
-        "extraction_json": json.dumps(extraction),
-        "processing_time_ms": round(tot_proc_ms, 2),
-        "created_at": created_at,
-        "seeded": 0,
-        "file_hash": file_hash,
-        "file_name": filename,
-    }
+    # Ensure extraction contains source and model
+    extraction["source"] = ext_source
+    extraction["model"] = ext_model
+    extraction["_source"] = ext_source
+    extraction["_model"] = ext_model
 
     # Post to ledger ONLY when the status is APPROVED
     if decision["status"] == "APPROVED" and matched_vendor and matched_po:
@@ -744,6 +727,33 @@ def run_pipeline(
         "email_draft": decision.get("email_draft"),
         "ledger_effect": ledger_effect,
         "stage_events": stage_events,
+    }
+
+    # Build run record for DB persistence (includes decision_json)
+    run_record = {
+        "run_id": run_id,
+        "invoice_number": extraction.get("invoice_number"),
+        "vendor_id": matched_vendor["id"] if matched_vendor else None,
+        "vendor_name": matched_vendor["name"] if matched_vendor else extraction.get("vendor_name"),
+        "po_number": matched_po["po_number"] if matched_po else None,
+        "status": decision["status"],
+        "severity": decision["severity"],
+        "headline": decision["headline"],
+        "net": inv_net,
+        "gross": extraction.get("total_amount"),
+        "currency": extraction.get("currency", "USD"),
+        "invoice_date": str(extraction.get("invoice_date") or ""),
+        "due_date": str(extraction.get("due_date") or ""),
+        "pay_by": decision.get("pay_by"),
+        "next_action": decision["next_action"],
+        "email_draft": decision.get("email_draft"),
+        "extraction_json": json.dumps(extraction),
+        "decision_json": json.dumps(decision_record),
+        "processing_time_ms": round(tot_proc_ms, 2),
+        "created_at": created_at,
+        "seeded": 0,
+        "file_hash": file_hash,
+        "file_name": filename,
     }
 
     # Save run record and checks to DB BEFORE emitting stage 12 finished

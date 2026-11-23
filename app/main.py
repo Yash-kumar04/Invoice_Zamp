@@ -412,6 +412,56 @@ async def create_run(
                 min_display_ms=350.0,
                 run_id=run_id,
             )
+        except Exception as unhandled_ex:
+            logger.error(f"Unhandled error in run_pipeline for {run_id}: {unhandled_ex}", exc_info=True)
+            try:
+                err_payload = {
+                    "run_id": run_id,
+                    "status": "ERROR",
+                    "severity": "HIGH",
+                    "headline": "Extraction failed. The document could not be processed. Please check document quality and retry.",
+                    "reasons": [str(unhandled_ex) or "Extraction service encountered an error.", "Please retry the run."],
+                    "next_action": "retry_run",
+                    "vendor": {"id": None, "name": None, "tax_id": None, "status": "unknown", "callback_phone": None},
+                    "po": {"po_number": None, "remaining_net": None, "tax_rate": None},
+                    "gross": 0.0,
+                    "net": None,
+                    "currency": "USD",
+                    "pay_by": None,
+                    "checks": [],
+                    "extraction": {"fields": {}, "source": "failed", "model": "none", "verified": False},
+                    "timings": {},
+                    "email_draft": None,
+                    "ledger_effect": {"posted": False, "reason": str(unhandled_ex)},
+                    "stage_events": [],
+                }
+                save_run(c, {
+                    "run_id": run_id,
+                    "status": "ERROR",
+                    "severity": "HIGH",
+                    "headline": err_payload["headline"],
+                    "file_hash": file_hash,
+                    "file_name": filename,
+                    "gross": 0.0,
+                    "extraction_json": json.dumps({"source": "failed", "model": "none"}),
+                    "decision_json": json.dumps(err_payload),
+                })
+            except Exception as save_err:
+                logger.error(f"Failed to persist unhandled error state for {run_id}: {save_err}")
+
+            evt = {
+                "run_id": run_id,
+                "stage_number": 2,
+                "stage_name": "Extract",
+                "event_type": "finished",
+                "duration_ms": 0.0,
+                "data": {
+                    "result": "fail",
+                    "summary": f"Extraction failed: {unhandled_ex}. Please retry.",
+                    "error": str(unhandled_ex),
+                },
+            }
+            event_broadcast(evt)
         finally:
             c.close()
 
@@ -438,8 +488,8 @@ async def stream_run(run_id: str):
             finally:
                 conn_replay.close()
 
-            if current_run and current_run["status"] != "RUNNING" and events:
-                for evt in events:
+            if current_run and current_run["status"] != "RUNNING":
+                for evt in (events or []):
                     yield f"event: {evt['event_type']}\ndata: {json.dumps(evt)}\n\n"
                     # Replay delay capped at 50ms per SPEC D6
                     await asyncio.sleep(min(0.05, float(evt.get("duration_ms") or 0.0) / 1000.0))
@@ -527,6 +577,20 @@ def list_runs(
                     d["decision"] = json.loads(d["decision_json"])
                 except Exception:
                     pass
+            elif d.get("extraction_json"):
+                try:
+                    ext_dict = json.loads(d["extraction_json"])
+                    src = ext_dict.get("source") or ext_dict.get("_source") or "Source unavailable"
+                    mdl = ext_dict.get("model") or ext_dict.get("_model") or ("Source unavailable" if src == "Source unavailable" else "none")
+                    d["decision"] = {
+                        "extraction": {
+                            "fields": ext_dict,
+                            "source": src,
+                            "model": mdl,
+                        }
+                    }
+                except Exception:
+                    pass
             runs.append(d)
         return {"runs": runs}
     finally:
@@ -547,6 +611,13 @@ def get_run_detail(run_id: str):
         if r_dict.get("decision_json"):
             try:
                 record = json.loads(r_dict["decision_json"])
+                if "extraction" in record and isinstance(record["extraction"], dict):
+                    src = record["extraction"].get("source") or record["extraction"].get("_source")
+                    mdl = record["extraction"].get("model") or record["extraction"].get("_model")
+                    if not src:
+                        record["extraction"]["source"] = "Source unavailable"
+                    if not mdl:
+                        record["extraction"]["model"] = "Source unavailable" if not src else "none"
                 return record
             except Exception:
                 pass
@@ -563,13 +634,23 @@ def get_run_detail(run_id: str):
         res["checks"] = checks
         if res.get("extraction_json"):
             try:
+                ext_dict = json.loads(res["extraction_json"])
+                src = ext_dict.get("source") or ext_dict.get("_source")
+                mdl = ext_dict.get("model") or ext_dict.get("_model")
+                if not src:
+                    src = "Source unavailable"
+                    mdl = "Source unavailable"
+                elif not mdl:
+                    mdl = "none"
                 res["extraction"] = {
-                    "fields": json.loads(res["extraction_json"]),
-                    "source": "live",
-                    "model": "gemini",
+                    "fields": ext_dict,
+                    "source": src,
+                    "model": mdl,
                 }
             except Exception:
-                pass
+                res["extraction"] = {"fields": {}, "source": "Source unavailable", "model": "Source unavailable"}
+        else:
+            res["extraction"] = {"fields": {}, "source": "Source unavailable", "model": "Source unavailable"}
         res["vendor"] = {"id": res.get("vendor_id"), "name": res.get("vendor_name")}
         res["po"] = {"po_number": res.get("po_number")}
         return res

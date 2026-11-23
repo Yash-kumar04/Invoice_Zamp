@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS runs (
     next_action         TEXT,
     email_draft         TEXT,
     extraction_json     TEXT,
+    decision_json       TEXT,
     processing_time_ms  REAL,
     created_at          TEXT NOT NULL,
     seeded              INTEGER NOT NULL DEFAULT 0,
@@ -155,8 +156,12 @@ CREATE TABLE IF NOT EXISTS review_actions (
 
 
 def create_tables(conn: sqlite3.Connection) -> None:
-    """Create all tables (idempotent)."""
+    """Create all tables (idempotent) and apply migrations."""
     conn.executescript(_SCHEMA)
+    # Ensure decision_json column exists on runs table for existing DBs
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(runs)").fetchall()]
+    if "decision_json" not in cols:
+        conn.execute("ALTER TABLE runs ADD COLUMN decision_json TEXT")
     conn.commit()
 
 
@@ -355,26 +360,45 @@ def save_run(
 ) -> str:
     """Insert a run record and its checks."""
     defaults = {
-        "severity": None, "headline": None, "net": None,
-        "gross": None, "currency": "USD", "invoice_date": None,
-        "due_date": None, "pay_by": None, "next_action": None,
-        "email_draft": None, "extraction_json": None,
-        "processing_time_ms": None, "seeded": 0,
-        "file_hash": None, "file_name": None,
+        "invoice_number": None,
+        "vendor_id": None,
+        "vendor_name": None,
+        "po_number": None,
+        "status": "RUNNING",
+        "severity": None,
+        "headline": None,
+        "net": None,
+        "gross": None,
+        "currency": "USD",
+        "invoice_date": None,
+        "due_date": None,
+        "pay_by": None,
+        "next_action": None,
+        "email_draft": None,
+        "extraction_json": None,
+        "decision_json": None,
+        "processing_time_ms": None,
+        "created_at": None,
+        "seeded": 0,
+        "file_hash": None,
+        "file_name": None,
     }
     r = {**defaults, **run}
+    if not r.get("created_at"):
+        from datetime import datetime
+        r["created_at"] = datetime.now().isoformat()
     conn.execute(
         """INSERT OR REPLACE INTO runs
            (run_id, invoice_number, vendor_id, vendor_name, po_number,
             status, severity, headline, net, gross, currency,
             invoice_date, due_date, pay_by, next_action, email_draft,
-            extraction_json, processing_time_ms, created_at, seeded,
+            extraction_json, decision_json, processing_time_ms, created_at, seeded,
             file_hash, file_name)
            VALUES (:run_id, :invoice_number, :vendor_id, :vendor_name,
                    :po_number, :status, :severity, :headline, :net,
                    :gross, :currency, :invoice_date, :due_date,
                    :pay_by, :next_action, :email_draft,
-                   :extraction_json, :processing_time_ms, :created_at,
+                   :extraction_json, :decision_json, :processing_time_ms, :created_at,
                    :seeded, :file_hash, :file_name)""",
         r,
     )

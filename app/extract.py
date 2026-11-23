@@ -308,6 +308,8 @@ def get_cached_extraction(file_hash: str) -> Optional[dict[str, Any]]:
             data = json.loads(fixture_path.read_text(encoding="utf-8"))
             data["_source"] = "cached"
             data["_model"] = f"fixture-{scenario_id}"
+            data["source"] = "cached"
+            data["model"] = f"fixture-{scenario_id}"
             return data
     except Exception as e:
         logger.warning(f"Error reading fixture for hash {file_hash}: {e}")
@@ -387,6 +389,8 @@ def extract_with_gemini(
                         result["evidence"] = {}
                     result["_source"] = "live"
                     result["_model"] = model_name
+                    result["source"] = "live"
+                    result["model"] = model_name
                     logger.info(f"Extraction successful with model '{model_name}'.")
                     return result
 
