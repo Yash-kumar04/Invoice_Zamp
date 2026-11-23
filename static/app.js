@@ -170,6 +170,9 @@ function getStatusBadgeHtml(status, severity) {
   } else if (s === 'ERROR') {
     statusClass = 'bg-red-50 text-red-700 border-red-200';
     label = 'Error';
+  } else if (s === 'RUNNING') {
+    statusClass = 'bg-blue-50 text-blue-700 border-blue-200';
+    label = 'Processing';
   }
 
   let html = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${statusClass}">${label}</span>`;
@@ -575,11 +578,22 @@ function connectEventSource(runId) {
     }
   });
 
-  es.onerror = err => {
+  es.onerror = async err => {
     console.warn('SSE stream closed or encountered error:', err);
     es.close();
     state.eventSource = null;
     document.getElementById('live-indicator').classList.add('hidden');
+
+    // Fetch the saved run status before rendering the final card
+    try {
+      const res = await fetch(`/api/runs/${runId}`);
+      if (res.ok) {
+        const detail = await res.json();
+        handleRunDone(detail);
+      }
+    } catch (fetchErr) {
+      console.error('Failed to fetch run status on stream disconnect:', fetchErr);
+    }
   };
 }
 
@@ -666,7 +680,10 @@ function renderExtractedFields(findings, decision = null) {
 
   if (badge) {
     badge.classList.remove('hidden');
-    if (source === 'cached') {
+    if (source === 'PDF text extraction') {
+      badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-700 border border-indigo-200';
+      badge.textContent = 'PDF text extraction';
+    } else if (source === 'cached') {
       badge.className = 'text-[11px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200';
       badge.textContent = `${model || 'fixture'} (cached)`;
     } else if (source === 'live') {
@@ -797,15 +814,33 @@ function renderDecisionCard(decision) {
   const container = document.getElementById('decision-card-container');
   if (!container) return;
 
-  const status = decision.status || 'NEEDS_REVIEW';
-  const severity = decision.severity || 'LOW';
-  const headline = decision.headline || 'Invoice Processed';
+  const status = (decision.status || 'NEEDS_REVIEW').toUpperCase();
+  const severity = (decision.severity || 'LOW').toUpperCase();
+  let headline = decision.headline;
+  if (status === 'RUNNING') {
+    headline = 'Processing invoice';
+  } else if (status === 'ERROR') {
+    headline = 'Extraction unavailable — please retry.';
+  } else if (!headline) {
+    headline = 'Invoice Processed';
+  }
   const reasons = decision.reasons || [];
-  const nextAction = decision.next_action || 'Review findings';
-  const gross = decision.gross !== undefined ? formatCurrency(decision.gross, decision.currency) : '—';
-  const net = decision.net !== undefined ? formatCurrency(decision.net, decision.currency) : '—';
+  const nextAction = status === 'RUNNING' ? 'Processing in progress...' : (decision.next_action || 'Review findings');
+  const gross = decision.gross !== undefined && decision.gross !== null ? formatCurrency(decision.gross, decision.currency) : '—';
+  const net = decision.net !== undefined && decision.net !== null ? formatCurrency(decision.net, decision.currency) : '—';
   const payBy = decision.pay_by ? formatDate(decision.pay_by) : '—';
   const totalMs = decision.processing_time_ms ? `${decision.processing_time_ms} ms` : '—';
+
+  // Stop spinners when in ERROR state
+  if (status === 'ERROR') {
+    for (let i = 1; i <= 12; i++) {
+      const icon = document.getElementById(`stage-icon-${i}`);
+      if (icon && icon.innerHTML.includes('animate-spin')) {
+        icon.className = 'absolute -left-0.5 top-0.5 w-7 h-7 rounded-full bg-rose-100 border-2 border-rose-500 flex items-center justify-center text-rose-700 z-10';
+        icon.innerHTML = `<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" /></svg>`;
+      }
+    }
+  }
 
   // Specific handling for Call Script (E4 Bank Change)
   let scriptHtml = '';
@@ -884,7 +919,9 @@ function renderDecisionCard(decision) {
   const extSource = decision?.extraction?.source;
   const extModel = decision?.extraction?.model;
   let sourceBadgeHtml = '';
-  if (extSource === 'cached') {
+  if (extSource === 'PDF text extraction') {
+    sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">PDF text extraction</span>`;
+  } else if (extSource === 'cached') {
     sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200">${escapeHtml(extModel || 'fixture')} (cached)</span>`;
   } else if (extSource === 'live') {
     sourceBadgeHtml = `<span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700 border border-blue-200">${escapeHtml(extModel || 'gemini')} (live)</span>`;

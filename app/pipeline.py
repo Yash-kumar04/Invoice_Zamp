@@ -223,13 +223,13 @@ def run_pipeline(
             "findings": {"error": str(ex)},
         }, duration_ms=t2_ms)
 
-        # Build ERROR decision record with plain English retry message
+        # Build ERROR decision record with plain English retry message (never blaming document quality on timeout)
         err_rec = {
             "run_id": run_id,
             "status": "ERROR",
             "severity": "HIGH",
-            "headline": "Extraction failed. The document could not be processed. Please check document quality and retry.",
-            "reasons": [str(ex) or "Extraction service encountered an error.", "Please retry the run."],
+            "headline": "Extraction unavailable — please retry.",
+            "reasons": [str(ex) or "Extraction service was temporarily unavailable.", "Please retry the run."],
             "next_action": "retry_run",
             "vendor": {"id": None, "name": None, "tax_id": None, "status": "unknown", "callback_phone": None},
             "po": {"po_number": None, "remaining_net": None, "tax_rate": None},
@@ -268,7 +268,10 @@ def run_pipeline(
     t2_ms = (time.perf_counter() - t0) * 1000
     timings["extract"] = t2_ms
     v_name = extraction.get("vendor_name") or "Unknown vendor"
-    stage2_summary = f"Extracted fields for {v_name} (source: {ext_source}, model: {ext_model})."
+    if ext_source == "PDF text extraction":
+        stage2_summary = f"Extracted fields for {v_name} (source: PDF text extraction)."
+    else:
+        stage2_summary = f"Extracted fields for {v_name} (source: {ext_source}, model: {ext_model})."
     emit(2, "finished", {
         "result": "pass",
         "duration_ms": round(t2_ms, 2),

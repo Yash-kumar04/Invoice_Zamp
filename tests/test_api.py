@@ -227,3 +227,103 @@ def test_older_run_with_no_recorded_source_shows_source_unavailable(client):
     assert detail["extraction"]["source"] == "Source unavailable"
     assert detail["extraction"]["model"] == "Source unavailable"
 
+
+def test_text_based_pdf_pymupdf_fallback_when_gemini_unavailable(client):
+    """Regression test 4: Text-based PDF outside manifest uses PyMuPDF fallback when Gemini fails."""
+    from unittest.mock import patch
+    import time
+    import fitz
+
+    # Create a clean text-based PDF with an unfamiliar vendor outside manifest
+    doc = fitz.open()
+    page = doc.new_page()
+    text = """
+Global Horizon Logistics LLC
+789 Transport Way, Suite 100, Atlanta, GA 30301
+Tax ID: TAX-GH-99120
+
+INVOICE
+Invoice #: INV-GH-7740
+Date: 2026-10-18
+Due Date: 2026-11-17
+PO Number: PO-7301
+
+Freight & Cargo Transport Services: $1,450.00
+Tax (0%): $0.00
+Total Due: $1,450.00
+"""
+    page.insert_text((50, 70), text)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    # Simulate Gemini failing
+    with patch("google.genai.Client", side_effect=Exception("Gemini 503 Outage")):
+        res = client.post(
+            "/api/runs",
+            files={"file": ("unfamiliar_invoice.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        )
+        assert res.status_code == 200
+        run_id = res.json()["run_id"]
+
+        final_detail = None
+        for _ in range(100):
+            time.sleep(0.1)
+            det_res = client.get(f"/api/runs/{run_id}")
+            if det_res.status_code == 200 and det_res.json().get("status") != "RUNNING":
+                final_detail = det_res.json()
+                break
+
+        assert final_detail is not None
+        # Unfamiliar vendor must NOT be auto-approved!
+        assert final_detail["status"] in ("NEEDS_REVIEW", "NEEDS_INFO")
+        assert final_detail["status"] != "APPROVED"
+        ext = final_detail["extraction"]
+        assert ext["source"] == "PDF text extraction"
+        assert ext["model"] == "PyMuPDF"
+        assert ext["fields"]["invoice_number"] == "INV-GH-7740"
+        assert ext["fields"]["total_amount"] == 1450.0
+
+
+def test_image_only_pdf_explicit_error_when_gemini_unavailable(client):
+    """Regression test 5: Image-only PDF with provider unavailable shows explicit retryable error card."""
+    from unittest.mock import patch
+    import time
+    import fitz
+    from PIL import Image
+
+    # Create an image-only PDF with no text layer
+    img = Image.new("RGB", (300, 300), color=(240, 240, 240))
+    img_bytes = io.BytesIO()
+    img.save(img_bytes, format="PNG")
+    img_data = img_bytes.getvalue()
+
+    doc = fitz.open()
+    page = doc.new_page(width=300, height=300)
+    page.insert_image(page.rect, stream=img_data)
+    pdf_bytes = doc.tobytes()
+    doc.close()
+
+    with patch("google.genai.Client", side_effect=Exception("Gemini 503 Outage")):
+        res = client.post(
+            "/api/runs",
+            files={"file": ("scanned_blank_invoice.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+        )
+        assert res.status_code == 200
+        run_id = res.json()["run_id"]
+
+        final_detail = None
+        for _ in range(100):
+            time.sleep(0.1)
+            det_res = client.get(f"/api/runs/{run_id}")
+            if det_res.status_code == 200 and det_res.json().get("status") != "RUNNING":
+                final_detail = det_res.json()
+                break
+
+        assert final_detail is not None
+        assert final_detail["status"] == "ERROR"
+        assert final_detail["severity"] == "HIGH"
+        assert final_detail["headline"] == "Extraction unavailable — please retry."
+        assert final_detail["next_action"] == "retry_run"
+        assert final_detail["ledger_effect"]["posted"] is False
+
+
