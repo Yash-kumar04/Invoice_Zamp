@@ -216,12 +216,6 @@ def run_pipeline(
         t2_ms = (time.perf_counter() - t0) * 1000
         timings["extract"] = t2_ms
         stage2_summary = f"Extraction failed: {ex}. Please retry."
-        emit(2, "finished", {
-            "result": "fail",
-            "duration_ms": round(t2_ms, 2),
-            "summary": stage2_summary,
-            "findings": {"error": str(ex)},
-        }, duration_ms=t2_ms)
 
         # Build ERROR decision record with plain English retry message (never blaming document quality on timeout)
         err_rec = {
@@ -244,6 +238,8 @@ def run_pipeline(
             "ledger_effect": {"posted": False, "reason": f"Extraction failed: {ex}"},
             "stage_events": stage_events,
         }
+        # Persist terminal ERROR status to database BEFORE emitting the stage failure event
+        # so any SSE listener reading DB state sees ERROR immediately (avoiding race conditions)
         if db is not None:
             save_run(db, {
                 "run_id": run_id,
@@ -263,6 +259,14 @@ def run_pipeline(
                 "extraction_json": json.dumps({"source": "failed", "model": "none"}),
                 "decision_json": json.dumps(err_rec),
             }, checks=[])
+
+        emit(2, "finished", {
+            "result": "fail",
+            "duration_ms": round(t2_ms, 2),
+            "summary": stage2_summary,
+            "findings": {"error": str(ex)},
+        }, duration_ms=t2_ms)
+
         return err_rec
 
     t2_ms = (time.perf_counter() - t0) * 1000

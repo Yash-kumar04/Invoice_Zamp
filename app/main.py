@@ -524,9 +524,20 @@ async def stream_run(run_id: str):
                     if is_stage12_finished or is_stage2_failed:
                         try:
                             dec = get_run_detail(run_id)
+                            if is_stage2_failed and dec.get("status") == "RUNNING":
+                                dec["status"] = "ERROR"
+                                dec["severity"] = "HIGH"
+                                dec["headline"] = "Extraction unavailable — please retry."
+                                dec["next_action"] = "retry_run"
                         except Exception as ex:
                             logger.error(f"Failed to get run detail for {run_id}: {ex}")
-                            dec = {"run_id": run_id, "status": "ERROR"}
+                            dec = {
+                                "run_id": run_id,
+                                "status": "ERROR",
+                                "severity": "HIGH",
+                                "headline": "Extraction unavailable — please retry.",
+                                "next_action": "retry_run",
+                            }
                         yield f"event: done\ndata: {json.dumps(dec)}\n\n"
                         break
                 except asyncio.TimeoutError:

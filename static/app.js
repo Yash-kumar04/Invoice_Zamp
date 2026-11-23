@@ -565,9 +565,20 @@ function connectEventSource(runId) {
     }
   });
 
-  es.addEventListener('done', e => {
+  es.addEventListener('done', async e => {
     try {
-      const decision = JSON.parse(e.data);
+      let decision = JSON.parse(e.data);
+      if (decision.status === 'RUNNING') {
+        try {
+          const res = await fetch(`/api/runs/${runId}`);
+          if (res.ok) {
+            const detail = await res.json();
+            if (detail.status !== 'RUNNING') {
+              decision = detail;
+            }
+          }
+        } catch (_) {}
+      }
       handleRunDone(decision);
     } catch (err) {
       console.error('Error handling done event:', err);
@@ -584,15 +595,21 @@ function connectEventSource(runId) {
     state.eventSource = null;
     document.getElementById('live-indicator').classList.add('hidden');
 
-    // Fetch the saved run status before rendering the final card
-    try {
-      const res = await fetch(`/api/runs/${runId}`);
-      if (res.ok) {
-        const detail = await res.json();
-        handleRunDone(detail);
+    // Poll for the saved run status before rendering the final card
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try {
+        const res = await fetch(`/api/runs/${runId}`);
+        if (res.ok) {
+          const detail = await res.json();
+          if (detail.status !== 'RUNNING' || attempt === 5) {
+            handleRunDone(detail);
+            return;
+          }
+        }
+      } catch (fetchErr) {
+        console.error('Failed to fetch run status on stream disconnect:', fetchErr);
       }
-    } catch (fetchErr) {
-      console.error('Failed to fetch run status on stream disconnect:', fetchErr);
+      await new Promise(r => setTimeout(r, 350));
     }
   };
 }
@@ -817,10 +834,10 @@ function renderDecisionCard(decision) {
   const status = (decision.status || 'NEEDS_REVIEW').toUpperCase();
   const severity = (decision.severity || 'LOW').toUpperCase();
   let headline = decision.headline;
-  if (status === 'RUNNING') {
-    headline = 'Processing invoice';
-  } else if (status === 'ERROR') {
+  if (status === 'ERROR' || (decision.reasons && decision.reasons.some(r => typeof r === 'string' && (r.includes('Extraction failed') || r.includes('unavailable'))))) {
     headline = 'Extraction unavailable — please retry.';
+  } else if (status === 'RUNNING') {
+    headline = 'Processing invoice';
   } else if (!headline) {
     headline = 'Invoice Processed';
   }
