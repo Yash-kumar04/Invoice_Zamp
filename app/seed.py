@@ -277,7 +277,7 @@ def _seed_history(conn):
          "post_to_ledger", 1980, 20),
 
         ("SEED-03", "INV-NW-1001", "V-001", "Northwind Traders Ltd",
-         "PO-7301", "APPROVED",
+         "PO-6001", "APPROVED",
          "Approved. Vendor, PO, goods receipt and amount agree"
          " (variance $0.00). Pay by 2026-12-01.",
          5400.00, 5832.00,
@@ -285,7 +285,7 @@ def _seed_history(conn):
          "post_to_ledger", 2100, 19),
 
         ("SEED-04", "INV-BP-2200", "V-003", "BrightPath IT Services",
-         "PO-7315", "APPROVED",
+         "PO-6002", "APPROVED",
          "Approved. Vendor, PO and amount agree (variance $0.00)."
          " Pay by 2026-11-18.",
          6600.00, 7260.00,
@@ -293,7 +293,7 @@ def _seed_history(conn):
          "post_to_ledger", 1850, 17),
 
         ("SEED-05", "INV-ML-0501", "V-004", "Meridian Logistics Inc",
-         "PO-7318", "APPROVED",
+         "PO-6003", "APPROVED",
          "Approved. Vendor, PO and amount agree (variance $0.00)."
          " Pay by 2026-12-05.",
          2600.00, 2730.00,
@@ -301,7 +301,7 @@ def _seed_history(conn):
          "post_to_ledger", 2450, 15),
 
         ("SEED-06", "INV-NW-1015", "V-001", "Northwind Traders Ltd",
-         "PO-7301", "APPROVED",
+         "PO-6004", "APPROVED",
          "Approved. Vendor, PO, goods receipt and amount agree"
          " (variance $0.00). Pay by 2026-12-07.",
          8100.00, 8748.00,
@@ -309,7 +309,7 @@ def _seed_history(conn):
          "post_to_ledger", 1920, 12),
 
         ("SEED-07", "INV-BP-2250", "V-003", "BrightPath IT Services",
-         "PO-7316", "APPROVED",
+         "PO-6005", "APPROVED",
          "Approved. Vendor, PO and amount agree (variance $0.00)."
          " Pay by 2026-11-25.",
          4500.00, 4950.00,
@@ -317,7 +317,7 @@ def _seed_history(conn):
          "post_to_ledger", 2080, 10),
 
         ("SEED-08", "INV-AX-1050", "V-002", "Apex Industrial Supply Co",
-         "PO-7310", "APPROVED",
+         "PO-6006", "APPROVED",
          "Approved. Vendor, PO, goods receipt and amount agree"
          " (variance $0.00). Pay by 2026-12-12.",
          10800.00, 11664.00,
@@ -326,21 +326,21 @@ def _seed_history(conn):
 
         # ── 3 needs_review ──────────────────────────────────────────
         ("SEED-09", "INV-AX-1030", "V-002", "Apex Industrial Supply Co",
-         "PO-7310", "NEEDS_REVIEW",
+         "PO-6007", "NEEDS_REVIEW",
          "Held for review: amount variance exceeds tolerance.",
          14000.00, 15120.00,
          "2026-11-08", "2026-12-08", None,
          "queue_for_review", 2890, 14),
 
         ("SEED-10", "INV-ML-0520", "V-004", "Meridian Logistics Inc",
-         "PO-7318", "NEEDS_REVIEW",
+         "PO-6008", "NEEDS_REVIEW",
          "Held for review: probable duplicate requires manual check.",
          2960.00, 3200.00,
          "2026-11-14", "2026-12-14", None,
          "queue_for_review", 3100, 6),
 
         ("SEED-11", "INV-NW-1030", "V-001", "Northwind Traders Ltd",
-         "PO-7301", "NEEDS_REVIEW",
+         "PO-6009", "NEEDS_REVIEW",
          "Held for review: bank account mismatch.",
          11000.00, 12000.00,
          "2026-11-16", "2026-12-16", None,

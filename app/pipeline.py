@@ -97,9 +97,11 @@ def run_pipeline(
     db: Any = None,
     on_event: Callable[[dict], None] | None = None,
     min_display_ms: float = 0.0,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute the 12-stage invoice processing pipeline."""
-    run_id = f"RUN-{uuid.uuid4().hex[:8].upper()}"
+    if run_id is None:
+        run_id = f"RUN-{uuid.uuid4().hex[:8].upper()}"
     start_total_time = time.perf_counter()
     created_at = datetime.now().isoformat()
     as_of = get_as_of_date()
@@ -187,7 +189,9 @@ def run_pipeline(
 
     t1_ms = (time.perf_counter() - t0) * 1000
     timings["ingest"] = t1_ms
-    stage1_summary = f"Ingested {filename} ({len(file_bytes)/1024:.1f} KB, {page_count} page(s), {'scanned' if is_scanned else 'digital'})."
+    doc_type = "scanned PDF" if is_scanned else "digital PDF"
+    page_str = f"{page_count} page" if page_count == 1 else f"{page_count} pages"
+    stage1_summary = f"{page_str}, {doc_type}, {len(file_bytes)/1024:.1f} KB, SHA-256 {file_hash[:8]}."
     emit(1, "finished", {
         "result": "pass",
         "duration_ms": round(t1_ms, 2),
@@ -267,10 +271,7 @@ def run_pipeline(
         "duration_ms": round(t2_ms, 2),
         "summary": stage2_summary,
         "findings": {
-            "vendor_name": extraction.get("vendor_name"),
-            "invoice_number": extraction.get("invoice_number"),
-            "total_amount": extraction.get("total_amount"),
-            "currency": extraction.get("currency"),
+            **extraction,
             "source": ext_source,
             "model": ext_model,
         },
@@ -699,24 +700,14 @@ def run_pipeline(
             "reason": f"Status is {decision['status']}, not APPROVED.",
         }
 
-    # Save run record and checks to DB
-    checks_data = [c.to_dict() for c in all_checks]
-    if db is not None:
-        save_run(db, run_record, checks_data)
-
     t12_ms = (time.perf_counter() - t0) * 1000
     timings["act"] = t12_ms
     act_text = "Posted to ledger" if ledger_effect["posted"] else str(decision["next_action"])
     stage12_summary = f"Action: {act_text.rstrip('.')}."
-    emit(12, "finished", {
-        "result": "pass",
-        "duration_ms": round(t12_ms, 2),
-        "summary": stage12_summary,
-        "findings": ledger_effect,
-    }, duration_ms=t12_ms)
 
     # Build and return the complete B10 decision record
-    return {
+    checks_data = [c.to_dict() for c in all_checks]
+    decision_record = {
         "run_id": run_id,
         "status": decision["status"],
         "severity": decision["severity"],
@@ -754,3 +745,16 @@ def run_pipeline(
         "ledger_effect": ledger_effect,
         "stage_events": stage_events,
     }
+
+    # Save run record and checks to DB BEFORE emitting stage 12 finished
+    if db is not None:
+        save_run(db, run_record, checks_data)
+
+    emit(12, "finished", {
+        "result": "pass",
+        "duration_ms": round(t12_ms, 2),
+        "summary": stage12_summary,
+        "findings": ledger_effect,
+    }, duration_ms=t12_ms)
+
+    return decision_record

@@ -32,7 +32,8 @@ import pymupdf as fitz
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.config import get_as_of_date, load_rules
@@ -119,6 +120,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Ensure static directory exists and mount static assets
+Path("static").mkdir(exist_ok=True)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+@app.get("/")
+def serve_index():
+    index_file = Path("static/index.html")
+    if index_file.exists():
+        return FileResponse(index_file)
+    return JSONResponse({"message": "Invoice processing API is running. UI under /static."})
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(status_code=204)
 
 
 # ── Error Handling (No stack traces to client) ───────────────────────────────
@@ -225,6 +243,15 @@ def get_samples():
     from scenarios.scenarios import SCENARIOS
 
     demo_order = ["S0", "S1", "E1a", "E1b", "E2", "E4", "E3"]
+    labels = {
+        "S0": "Happy path",
+        "S1": "Within tolerance",
+        "E1a": "Split bill 1",
+        "E1b": "Split bill 2",
+        "E2": "Duplicate scan",
+        "E4": "Bank change",
+        "E3": "Missing info scan",
+    }
     samples = []
     for s_id in demo_order:
         s = SCENARIOS.get(s_id)
@@ -235,6 +262,7 @@ def get_samples():
         samples.append({
             "id": s["id"],
             "name": f"{s['id']}: {s['vendor_name']} ({s['file_name']})",
+            "label": labels.get(s["id"], ""),
             "vendor_id": s["vendor_id"],
             "vendor_name": s["vendor_name"],
             "invoice_number": s["invoice_number"],
@@ -246,6 +274,52 @@ def get_samples():
             "layout": s.get("layout", "classic"),
         })
     return {"samples": samples}
+
+
+@app.get("/api/samples/{sample_id}/file")
+def get_sample_file(sample_id: str):
+    """Serve the sample document file for browser preview."""
+    from scenarios.scenarios import SCENARIOS
+    s = SCENARIOS.get(sample_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Sample scenario not found.")
+    pdf_path = SAMPLES_DIR / s["file_name"]
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail=f"Sample file {s['file_name']} not found.")
+    media_type = "image/png" if s.get("is_image_only") and s["file_name"].endswith(".png") else "application/pdf"
+    return FileResponse(pdf_path, media_type=media_type)
+
+
+@app.get("/api/runs/{run_id}/file")
+def get_run_file(run_id: str):
+    """Serve document file for an existing run."""
+    conn = get_connection()
+    try:
+        r = get_run(conn, run_id)
+        if not r:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found.")
+        r_dict = dict(r)
+        fname = r_dict.get("file_name")
+        fhash = r_dict.get("file_hash")
+
+        # 1. Check samples
+        if fname:
+            sample_path = SAMPLES_DIR / fname
+            if sample_path.exists():
+                return FileResponse(sample_path, media_type="application/pdf")
+
+        # 2. Check uploads directory
+        uploads_dir = Path("uploads")
+        if fhash:
+            for ext in (".pdf", ".png", ".jpg", ".jpeg"):
+                candidate = uploads_dir / f"{fhash}{ext}"
+                if candidate.exists():
+                    media_type = "application/pdf" if ext == ".pdf" else "image/png"
+                    return FileResponse(candidate, media_type=media_type)
+
+        raise HTTPException(status_code=404, detail="Original document file not found.")
+    finally:
+        conn.close()
 
 
 @app.post("/api/reset")
@@ -303,6 +377,13 @@ async def create_run(
     # Validate file type, size, and page count
     validate_upload(file_bytes, filename)
 
+    # Save file to uploads cache for preview
+    uploads_dir = Path("uploads")
+    uploads_dir.mkdir(exist_ok=True)
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    ext = Path(filename).suffix or ".pdf"
+    (uploads_dir / f"{file_hash}{ext}").write_bytes(file_bytes)
+
     # Execute pipeline asynchronously in thread
     conn = get_connection()
     loop = asyncio.get_running_loop()
@@ -329,6 +410,7 @@ async def create_run(
                 db=c,
                 on_event=event_broadcast,
                 min_display_ms=350.0,
+                run_id=run_id,
             )
         finally:
             c.close()
@@ -342,18 +424,13 @@ async def create_run(
 @app.get("/api/runs/{run_id}/stream")
 async def stream_run(run_id: str):
     """Server-Sent Events (SSE) endpoint: replays finished runs or streams live events."""
-    conn = get_connection()
-    try:
-        run_row = get_run(conn, run_id)
-    finally:
-        conn.close()
-
     queue: asyncio.Queue = asyncio.Queue()
     RUN_LISTENERS[run_id].append(queue)
 
     async def event_generator():
+        seen_events = set()
         try:
-            # 1. If run has already finished, replay from DB events
+            # 1. Fetch DB state: if finished, replay; if running, replay prior events
             conn_replay = get_connection()
             try:
                 events = get_run_events(conn_replay, run_id)
@@ -368,26 +445,39 @@ async def stream_run(run_id: str):
                     await asyncio.sleep(min(0.05, float(evt.get("duration_ms") or 0.0) / 1000.0))
 
                 # Yield final decision record
-                decision = json.loads(current_run["decision_json"]) if current_run.get("decision_json") else dict(current_run)
-                yield f"event: done\ndata: {json.dumps(decision)}\n\n"
+                try:
+                    dec = get_run_detail(run_id)
+                except Exception:
+                    dec = dict(current_run)
+                yield f"event: done\ndata: {json.dumps(dec)}\n\n"
                 return
+
+            # If still running, replay already emitted events first
+            for evt in (events or []):
+                key = (evt.get("stage_number"), evt.get("event_type"))
+                seen_events.add(key)
+                yield f"event: {evt['event_type']}\ndata: {json.dumps(evt)}\n\n"
 
             # 2. Live streaming from queue
             while True:
                 try:
                     evt = await asyncio.wait_for(queue.get(), timeout=60.0)
+                    key = (evt.get("stage_number"), evt.get("event_type"))
+                    if key in seen_events:
+                        continue
+                    seen_events.add(key)
                     yield f"event: {evt['event_type']}\ndata: {json.dumps(evt)}\n\n"
 
-                    # If Stage 12 finished, fetch final run and emit done
-                    if evt.get("stage_number") == 12 and evt.get("event_type") == "finished":
-                        c_final = get_connection()
+                    # If Stage 12 finished or early failure, emit final done event
+                    is_stage12_finished = (evt.get("stage_number") == 12 and evt.get("event_type") == "finished")
+                    is_stage2_failed = (evt.get("stage_number") == 2 and evt.get("event_type") == "finished" and evt.get("data", {}).get("result") == "fail")
+                    if is_stage12_finished or is_stage2_failed:
                         try:
-                            f_run = get_run(c_final, run_id)
-                            if f_run:
-                                dec = json.loads(f_run["decision_json"]) if f_run.get("decision_json") else dict(f_run)
-                                yield f"event: done\ndata: {json.dumps(dec)}\n\n"
-                        finally:
-                            c_final.close()
+                            dec = get_run_detail(run_id)
+                        except Exception as ex:
+                            logger.error(f"Failed to get run detail for {run_id}: {ex}")
+                            dec = {"run_id": run_id, "status": "ERROR"}
+                        yield f"event: done\ndata: {json.dumps(dec)}\n\n"
                         break
                 except asyncio.TimeoutError:
                     yield ": keep-alive\n\n"
@@ -471,6 +561,17 @@ def get_run_detail(run_id: str):
                     pass
         res = r_dict
         res["checks"] = checks
+        if res.get("extraction_json"):
+            try:
+                res["extraction"] = {
+                    "fields": json.loads(res["extraction_json"]),
+                    "source": "live",
+                    "model": "gemini",
+                }
+            except Exception:
+                pass
+        res["vendor"] = {"id": res.get("vendor_id"), "name": res.get("vendor_name")}
+        res["po"] = {"po_number": res.get("po_number")}
         return res
     finally:
         conn.close()

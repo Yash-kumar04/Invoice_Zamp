@@ -474,7 +474,7 @@ def _build_pdf_flowables(s: dict) -> list:
         if layout == "modern_teal_alert" and s.get("page_notes"):
             alert_style = ParagraphStyle("Alert", fontName="Helvetica-Bold", fontSize=9, textColor=colors.HexColor("#991b1b"), leading=13)
             alert_box = Table(
-                [[Paragraph(f"⚠️ <b>BANK DETAILS CHANGE NOTICE</b><br/>{s['page_notes']}", alert_style)]],
+                [[Paragraph(f"<b>IMPORTANT: BANK DETAILS CHANGE NOTICE</b><br/>{s['page_notes']}", alert_style)]],
                 colWidths=[540],
             )
             alert_box.setStyle(TableStyle([
@@ -710,18 +710,18 @@ def generate_image_only_pdf(s: dict, digital_bytes: bytes, output_path: Path, se
     rng = np.random.default_rng(seed)
 
     # Open rendered digital PDF with PyMuPDF
-    doc = fitz.open(stream=digital_bytes, filetype="pdf")
-    page = doc[0]
+    with fitz.open(stream=digital_bytes, filetype="pdf") as doc:
+        page = doc[0]
 
-    # Search for "Date:" location for E3 before rasterisation
-    date_rect = None
-    if s["id"] == "E3":
-        date_rects = page.search_for("Date:")
-        if date_rects:
-            date_rect = date_rects[0]
+        # Search for "Date:" location for E3 before rasterisation
+        date_rect = None
+        if s["id"] == "E3":
+            date_rects = page.search_for("Date:")
+            if date_rects:
+                date_rect = date_rects[0]
 
-    pix = page.get_pixmap(dpi=150)
-    img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        pix = page.get_pixmap(dpi=150)
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
     w, h = img.size
 
     x = np.linspace(0, 1, w, endpoint=False)

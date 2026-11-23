@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-50">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>InvoiceDesk — Invoice Decision Engine</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes spin-slow {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .animate-spin-slow {
+      animation: spin-slow 1s linear infinite;
+    }
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="h-full text-slate-800 flex flex-col font-sans antialiased">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex justify-between items-center h-16">
+        <!-- Logo & Product Name -->
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-sm tracking-tight">
+            ID
+          </div>
+          <div>
+            <div class="flex items-center space-x-2">
+              <span class="font-bold text-slate-900 text-lg tracking-tight">InvoiceDesk</span>
+              <span class="text-xs bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded-full border border-blue-200">Decision Engine</span>
+            </div>
+            <p class="text-xs text-slate-500">Autonomous Accounts Payable Processing</p>
+          </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <nav class="flex space-x-1 sm:space-x-2" id="tab-nav">
+          <button data-tab="run" class="tab-btn px-3 py-2 rounded-md text-sm font-medium transition-colors text-blue-600 bg-blue-50">
+            Run Pipeline
+          </button>
+          <button data-tab="dashboard" class="tab-btn px-3 py-2 rounded-md text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+            Dashboard
+          </button>
+          <button data-tab="review" class="tab-btn px-3 py-2 rounded-md text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100 flex items-center space-x-1.5">
+            <span>Review Queue</span>
+            <span id="review-badge" class="hidden text-xs bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded-full">0</span>
+          </button>
+          <button data-tab="rules" class="tab-btn px-3 py-2 rounded-md text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+            Rules & Assumptions
+          </button>
+          <button data-tab="data" class="tab-btn px-3 py-2 rounded-md text-sm font-medium transition-colors text-slate-600 hover:text-slate-900 hover:bg-slate-100">
+            Master Data
+          </button>
+        </nav>
+
+        <!-- Header Actions -->
+        <div class="flex items-center space-x-3">
+          <button id="btn-reset-demo" class="inline-flex items-center px-3 py-1.5 border border-slate-300 shadow-xs text-xs font-medium rounded-md text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 focus:outline-hidden transition-colors">
+            <svg class="w-3.5 h-3.5 mr-1.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reset Demo Data
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Notification Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col space-y-2 pointer-events-none"></div>
+
+  <!-- Main Content Area -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <!-- TAB 1: RUN VIEW                                                    -->
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section id="view-run" class="tab-view block space-y-6">
+      
+      <!-- Top banner for notifications / active run info -->
+      <div id="run-banner" class="hidden rounded-lg p-4 border text-sm flex items-center justify-between"></div>
+
+      <!-- 3-Column Layout: Left (Inputs), Center (Timeline & Decision), Right (Preview & Fields) -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        
+        <!-- Left Column: Dropzone & Sample Chips (cols: 4) -->
+        <div class="lg:col-span-4 space-y-5">
+          
+          <!-- Drop Zone Card -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <h3 class="text-sm font-semibold text-slate-900 mb-2">Upload Invoice</h3>
+            <p class="text-xs text-slate-500 mb-3">PDF, PNG, or JPEG (max 10 MB, 5 pages)</p>
+            
+            <div id="drop-zone" class="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-lg p-5 text-center cursor-pointer transition-colors bg-slate-50 hover:bg-blue-50/30">
+              <input type="file" id="file-input" class="hidden" accept=".pdf,image/png,image/jpeg">
+              <svg class="mx-auto h-8 w-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+              <p class="mt-2 text-xs font-medium text-slate-700">Drop invoice file here, or <span class="text-blue-600 underline">browse</span></p>
+            </div>
+          </div>
+
+          <!-- Sample Chips Card -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-slate-900">Demo Scenarios</h3>
+              <span class="text-[11px] font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">Demo Order</span>
+            </div>
+            <p class="text-xs text-slate-500 mb-3">Click any scenario chip to run through the decision engine:</p>
+
+            <div id="sample-chips-container" class="space-y-2">
+              <!-- Dynamically populated sample chips -->
+              <div class="animate-pulse space-y-2">
+                <div class="h-12 bg-slate-100 rounded-lg"></div>
+                <div class="h-12 bg-slate-100 rounded-lg"></div>
+                <div class="h-12 bg-slate-100 rounded-lg"></div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Center Column: 12-Stage Timeline (cols: 4) -->
+        <div class="lg:col-span-4 space-y-5">
+          
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div>
+                <h3 class="text-sm font-semibold text-slate-900">Processing Stages</h3>
+                <span id="active-run-id-label" class="text-xs text-slate-500 font-mono">No active run</span>
+              </div>
+              <div id="live-indicator" class="hidden flex items-center space-x-1.5 text-xs text-blue-600 font-medium">
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                </span>
+                <span>Live Streaming</span>
+              </div>
+            </div>
+
+            <!-- Timeline Items 1 to 12 -->
+            <div id="stage-timeline" class="space-y-3 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200 before:z-0">
+              <!-- Dynamically rendered 12 stages -->
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right Column: Decision Card, Document Preview & Extracted Fields (cols: 4) -->
+        <div class="lg:col-span-4 space-y-5" id="right-column-container">
+          
+          <!-- Final Decision Card (Appears at top of right column upon completion) -->
+          <div id="decision-card-container" class="hidden space-y-4"></div>
+
+          <!-- Document Preview Card -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-slate-900">Document Preview</h3>
+              <a id="preview-open-link" href="#" target="_blank" class="hidden text-xs text-blue-600 hover:underline">Open Full</a>
+            </div>
+            
+            <div id="document-preview-container" class="w-full h-72 bg-slate-100 rounded-lg border border-slate-200 flex items-center justify-center overflow-hidden relative">
+              <div class="text-center p-4 text-slate-400 text-xs">
+                <svg class="w-8 h-8 mx-auto mb-2 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Select a sample or upload a document to view preview
+              </div>
+            </div>
+          </div>
+
+          <!-- Extracted Fields Card -->
+          <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="text-sm font-semibold text-slate-900">Extracted Fields</h3>
+              <div id="model-source-badge" class="hidden text-xs px-2 py-0.5 rounded-full font-medium"></div>
+            </div>
+
+            <div id="extracted-fields-container" class="space-y-2 text-xs">
+              <p class="text-slate-400 text-center py-6">Extracted data will appear here once extracted by the model.</p>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <!-- TAB 2: DASHBOARD                                                   -->
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section id="view-dashboard" class="tab-view hidden space-y-6">
+      
+      <!-- KPI Metric Cards -->
+      <div id="kpi-strip" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <!-- Dynamically rendered KPIs -->
+      </div>
+
+      <!-- Status Breakdown (Pure CSS bars) -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-3">
+        <h3 class="text-sm font-semibold text-slate-900">Status Distribution</h3>
+        <div id="status-bar-container" class="h-4 w-full bg-slate-100 rounded-full overflow-hidden flex"></div>
+        <div id="status-legend" class="flex flex-wrap gap-4 text-xs font-medium text-slate-600"></div>
+      </div>
+
+      <!-- Historical & Live Runs Table -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        
+        <!-- Table Header & Filter Bar -->
+        <div class="p-5 border-b border-slate-200 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Invoice Processing History</h3>
+            <p class="text-xs text-slate-500">Click any row to inspect the full audit trace and document preview</p>
+          </div>
+
+          <!-- Filter Controls -->
+          <div class="flex flex-wrap items-center gap-3">
+            <!-- Status Filter -->
+            <select id="filter-status" class="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-hidden focus:border-blue-500">
+              <option value="">All Statuses</option>
+              <option value="APPROVED">Approved</option>
+              <option value="NEEDS_REVIEW">Needs Review</option>
+              <option value="NEEDS_INFO">Needs Info</option>
+              <option value="REJECTED">Rejected</option>
+              <option value="ERROR">Error</option>
+            </select>
+
+            <!-- Source Filter -->
+            <select id="filter-source" class="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-hidden focus:border-blue-500">
+              <option value="">All Runs</option>
+              <option value="live">Live Runs Only</option>
+              <option value="seeded">Demo History Only</option>
+            </select>
+
+            <!-- Search input -->
+            <input type="text" id="filter-search" placeholder="Search invoice, vendor..." class="text-xs border border-slate-300 rounded-lg px-3 py-1.5 focus:outline-hidden focus:border-blue-500">
+          </div>
+        </div>
+
+        <!-- Runs Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs text-slate-600">
+            <thead class="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px] tracking-wider">
+              <tr>
+                <th class="py-3 px-4">Run ID</th>
+                <th class="py-3 px-4">Date</th>
+                <th class="py-3 px-4">Vendor</th>
+                <th class="py-3 px-4">Invoice #</th>
+                <th class="py-3 px-4">PO #</th>
+                <th class="py-3 px-4">Amount</th>
+                <th class="py-3 px-4">Status</th>
+                <th class="py-3 px-4">Severity</th>
+                <th class="py-3 px-4">Origin</th>
+              </tr>
+            </thead>
+            <tbody id="runs-table-body" class="divide-y divide-slate-100 cursor-pointer">
+              <!-- Dynamically populated rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <!-- TAB 3: REVIEW QUEUE                                                -->
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section id="view-review" class="tab-view hidden space-y-6">
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-900">Held Invoices Pending Review</h3>
+            <p class="text-xs text-slate-500">Invoices requiring manual AP decision, sorted by severity and due date</p>
+          </div>
+          <span id="review-count-badge" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+            0 items pending
+          </span>
+        </div>
+
+        <div id="review-queue-container" class="space-y-4">
+          <!-- Dynamically populated review cards -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <!-- TAB 4: RULES & ASSUMPTIONS                                         -->
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section id="view-rules" class="tab-view hidden space-y-6">
+      
+      <!-- Tab Header Banner -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <div class="flex items-center space-x-2">
+            <h2 class="text-base font-bold text-slate-900">InvoiceDesk Rules & Operating Assumptions</h2>
+            <span class="text-xs bg-blue-50 text-blue-700 font-semibold px-2 py-0.5 rounded-full border border-blue-200">Specification</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-1">Autonomous accounts payable validation thresholds, deterministic 12-stage process map, and operational business constraints.</p>
+        </div>
+      </div>
+
+      <!-- Rules Configuration Card -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Configured Rules & Thresholds</h3>
+          <p class="text-xs text-slate-500">Active rules engine parameters loaded from config/rules.json</p>
+        </div>
+        <div id="config-rules-table" class="overflow-x-auto"></div>
+      </div>
+
+      <!-- Process Map -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">12-Stage Processing Map</h3>
+          <p class="text-xs text-slate-500">Deterministic workflow execution pipeline per SPEC.md B5</p>
+        </div>
+        <div id="process-map-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+      </div>
+
+      <!-- Business Assumptions -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">InvoiceDesk Business Assumptions</h3>
+          <p class="text-xs text-slate-500">Standard operational constraints per SPEC.md B3</p>
+        </div>
+        <div id="assumptions-container" class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs"></div>
+      </div>
+
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <!-- TAB 5: MASTER DATA                                                 -->
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section id="view-data" class="tab-view hidden space-y-6">
+      
+      <!-- Master Vendors -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Vendor Master Records</h3>
+          <p class="text-xs text-slate-500">Verified master vendors, tax identifiers, banking details, and authorized aliases</p>
+        </div>
+        <div id="master-vendors-container" class="overflow-x-auto"></div>
+      </div>
+
+      <!-- Purchase Orders & Balances -->
+      <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-xs space-y-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-900">Purchase Orders & Balances</h3>
+          <p class="text-xs text-slate-500">Open purchase orders with live unbilled balance tracking and goods receipt status</p>
+        </div>
+        <div id="master-pos-container" class="overflow-x-auto"></div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Persistent Footer on Every Tab -->
+  <footer class="bg-white border-t border-slate-200 py-3 mt-auto">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-xs text-slate-500">
+      Built by Yash Kumar for the Zamp AI Solutions Analyst case study (PS-1)
+    </div>
+  </footer>
+
+  <!-- Review Note Modal -->
+  <div id="review-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-xl shadow-xl border border-slate-200 max-w-md w-full p-6 space-y-4">
+      <h3 id="modal-title" class="text-base font-semibold text-slate-900">Review Invoice</h3>
+      <p id="modal-desc" class="text-xs text-slate-600">Provide an audit reason or note for this decision.</p>
+      
+      <div>
+        <label for="review-note-input" class="block text-xs font-medium text-slate-700 mb-1">Audit Note</label>
+        <textarea id="review-note-input" rows="3" class="w-full text-xs border border-slate-300 rounded-lg p-2.5 focus:outline-hidden focus:border-blue-500" placeholder="e.g. Verified goods received via warehouse supervisor..."></textarea>
+      </div>
+
+      <div class="flex justify-end space-x-3 pt-2">
+        <button id="modal-cancel-btn" class="px-3 py-1.5 border border-slate-300 text-xs font-medium rounded-md text-slate-700 hover:bg-slate-50">Cancel</button>
+        <button id="modal-confirm-btn" class="px-3.5 py-1.5 bg-blue-600 text-xs font-medium rounded-md text-white hover:bg-blue-700 shadow-xs">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main JavaScript App -->
+  <script src="/static/app.js"></script>
+</body>
+</html>

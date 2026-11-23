@@ -51,68 +51,68 @@ class TestScenarioPDFs:
     def test_s0_has_text_layer_and_invoice_number(self):
         pdf_path = SAMPLES_DIR / SCENARIOS["S0"]["file_name"]
         assert pdf_path.exists()
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-        text = page.get_text()
-        assert "INV-20831" in text
-        assert "Northwind Traders Ltd" in text
-        assert "46,170.00" in text
+        with fitz.open(pdf_path) as doc:
+            page = doc[0]
+            text = page.get_text()
+            assert "INV-20831" in text
+            assert "Northwind Traders Ltd" in text
+            assert "46,170.00" in text
 
     def test_s1_has_text_layer_and_bundled_notice(self):
         pdf_path = SAMPLES_DIR / SCENARIOS["S1"]["file_name"]
         assert pdf_path.exists()
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-        text = page.get_text()
-        assert "INV-BP-2291" in text
-        assert "13,230.00" in text
-        assert "BrightPath IT Services" in text
+        with fitz.open(pdf_path) as doc:
+            page = doc[0]
+            text = page.get_text()
+            assert "INV-BP-2291" in text
+            assert "13,230.00" in text
+            assert "BrightPath IT Services" in text
 
     def test_e1a_has_text_layer(self):
         pdf_path = SAMPLES_DIR / SCENARIOS["E1a"]["file_name"]
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
-        assert "APX-1055" in text
-        assert "28,080.00" in text
+        with fitz.open(pdf_path) as doc:
+            text = doc[0].get_text()
+            assert "APX-1055" in text
+            assert "28,080.00" in text
 
     def test_e1b_has_text_layer(self):
         pdf_path = SAMPLES_DIR / SCENARIOS["E1b"]["file_name"]
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
-        assert "APX-1061" in text
-        assert "8,640.00" in text
+        with fitz.open(pdf_path) as doc:
+            text = doc[0].get_text()
+            assert "APX-1061" in text
+            assert "8,640.00" in text
 
     def test_e4_has_text_layer_and_changed_bank_notice(self):
         pdf_path = SAMPLES_DIR / SCENARIOS["E4"]["file_name"]
-        doc = fitz.open(pdf_path)
-        text = doc[0].get_text()
-        assert "INV-BP-2304" in text
-        assert "9027" in text
-        assert "ap@brightpath-billing.example" in text
+        with fitz.open(pdf_path) as doc:
+            text = doc[0].get_text()
+            assert "INV-BP-2304" in text
+            assert "9027" in text
+            assert "ap@brightpath-billing.example" in text
 
     def test_e2_is_image_only_with_empty_text_layer(self):
         """E2 must be an image-only PDF with NO text layer."""
         pdf_path = SAMPLES_DIR / SCENARIOS["E2"]["file_name"]
         assert pdf_path.exists()
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-        text = page.get_text().strip()
-        assert text == "", f"E2 should have empty text layer, but got: {text[:50]}"
-        # Ensure image is present
-        image_list = page.get_images()
-        assert len(image_list) >= 1
+        with fitz.open(pdf_path) as doc:
+            page = doc[0]
+            text = page.get_text().strip()
+            assert text == "", f"E2 should have empty text layer, but got: {text[:50]}"
+            # Ensure image is present
+            image_list = page.get_images()
+            assert len(image_list) >= 1
 
     def test_e3_is_image_only_with_empty_text_layer(self):
         """E3 must be an image-only PDF with NO text layer."""
         pdf_path = SAMPLES_DIR / SCENARIOS["E3"]["file_name"]
         assert pdf_path.exists()
-        doc = fitz.open(pdf_path)
-        page = doc[0]
-        text = page.get_text().strip()
-        assert text == "", f"E3 should have empty text layer, but got: {text[:50]}"
-        # Ensure image is present
-        image_list = page.get_images()
-        assert len(image_list) >= 1
+        with fitz.open(pdf_path) as doc:
+            page = doc[0]
+            text = page.get_text().strip()
+            assert text == "", f"E3 should have empty text layer, but got: {text[:50]}"
+            # Ensure image is present
+            image_list = page.get_images()
+            assert len(image_list) >= 1
 
 
 class TestExtractionFixtures:
